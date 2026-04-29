@@ -107,21 +107,7 @@ public class AuthService {
                 .active(true)
                 .build();
 
-        WalletEntity businessWallet = WalletEntity.builder()
-                .user(user)
-                .walletType(WalletEntity.WalletType.BUSINESS)
-                .balance(BigDecimal.ZERO)
-                .availableBalance(BigDecimal.ZERO)
-                .holdAmount(BigDecimal.ZERO)
-                .currency("PEN")
-                .monthlyRevenue(BigDecimal.ZERO)
-                .monthlyExpenses(BigDecimal.ZERO)
-                .dailyTxCount(0)
-                .active(true)
-                .build();
-
         walletRepository.save(personalWallet);
-        walletRepository.save(businessWallet);
     }
 
     private String generateToken(UserEntity user) {
