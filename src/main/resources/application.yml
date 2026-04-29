@@ -7,6 +7,8 @@ spring:
   application:
     name: yapeseguro-backend
 
+
+
   # ================================
   # DATASOURCE - PostgreSQL
   # ================================
@@ -134,11 +136,11 @@ yapeseguro:
 # ================================
 springdoc:
   api-docs:
-    path: /api-docs
+    enabled: true
+    path: /v3/api-docs
   swagger-ui:
+    enabled: true
     path: /swagger-ui.html
-    operations-sorter: alpha
-    tags-sorter: alpha
 
 # ================================
 # ACTUATOR — health checks

@@ -125,13 +125,7 @@ public class AuthService {
     }
 
     private String generateToken(UserEntity user) {
-        User springUser = new User(
-                user.getEmail(),
-                user.getPasswordHash(),
-                java.util.List.of(() -> "ROLE_USER")
-        );
-
-        return jwtService.generateToken(String.valueOf(springUser));
+        return jwtService.generateToken(user.getEmail());
     }
 
     private AuthResponse toAuthResponse(UserEntity user, String accessToken) {
