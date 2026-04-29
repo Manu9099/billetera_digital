@@ -2,6 +2,8 @@ package com.yapeseguro.api.controllers;
 
 import com.yapeseguro.api.dto.request.MarketplaceRequest;
 import com.yapeseguro.api.dto.request.P2PRequest;
+import com.yapeseguro.api.dto.response.TransactionResponse;
+import com.yapeseguro.application.services.TransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -10,6 +12,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
+
+
 import java.util.UUID;
 
 @RestController
@@ -17,16 +21,19 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TransactionController {
 
+    private final TransactionService transactionService;
+
     /**
-     * POST /transactions/p2p — Feature: Pago P2P básico
+     * POST /transactions/p2p — transferencia P2P real
      */
     @PostMapping("/p2p")
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<Void> sendP2P(
+    public ResponseEntity<TransactionResponse> sendP2P(
             @Valid @RequestBody P2PRequest request,
             @AuthenticationPrincipal UserDetails user
     ) {
-        return ResponseEntity.status(HttpStatus.CREATED).build();
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(transactionService.sendP2P(request, user.getUsername()));
     }
 
     /**

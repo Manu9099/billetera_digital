@@ -13,15 +13,19 @@ import java.util.UUID;
 public class P2PRequest {
 
     @NotNull
+    private UUID sourceWalletId;
+
+    @NotNull
     private UUID recipientUserId;
 
     @NotNull
-    @DecimalMin("0.01")
+    @DecimalMin(value = "0.01", message = "El monto debe ser mayor a 0")
     private BigDecimal amount;
 
     @NotBlank
     @Size(max = 100)
     private String concept;
 
+    @Size(max = 500)
     private String notes;
 }

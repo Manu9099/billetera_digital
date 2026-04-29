@@ -1,7 +1,10 @@
 package com.yapeseguro.api.controllers;
 
 import com.yapeseguro.api.dto.request.TopUpWalletRequest;
+import com.yapeseguro.api.dto.response.PageResponse;
+import com.yapeseguro.api.dto.response.TransactionResponse;
 import com.yapeseguro.api.dto.response.WalletResponse;
+import com.yapeseguro.application.services.TransactionService;
 import com.yapeseguro.application.services.WalletService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +22,7 @@ import java.util.UUID;
 public class WalletController {
 
     private final WalletService walletService;
+    private final TransactionService transactionService;
 
     /**
      * GET /wallets/me — ver mis billeteras
@@ -45,15 +49,22 @@ public class WalletController {
     }
 
     /**
-     * GET /wallets/{walletId}/transactions
+     * GET /wallets/{walletId}/transactions — historial de movimientos
      */
     @GetMapping("/{walletId}/transactions")
-    public ResponseEntity<Void> getTransactions(
+    public ResponseEntity<PageResponse<TransactionResponse>> getTransactions(
             @PathVariable UUID walletId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal UserDetails user
     ) {
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(
+                transactionService.getWalletTransactions(
+                        walletId,
+                        user.getUsername(),
+                        page,
+                        size
+                )
+        );
     }
 }
