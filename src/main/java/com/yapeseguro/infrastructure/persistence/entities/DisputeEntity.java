@@ -13,7 +13,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "disputes", schema = "yape")
 @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
-class DisputeEntity {
+public class DisputeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

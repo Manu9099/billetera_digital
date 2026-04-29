@@ -1,105 +1,123 @@
 package com.yapeseguro.api.exception;
 
-import lombok.Builder;
-import lombok.Data;
+import com.yapeseguro.api.dto.response.ApiErrorResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.OffsetDateTime;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.List;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ApiError> handleNotFound(ResourceNotFoundException ex) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage()));
+    public ResponseEntity<ApiErrorResponse> handleNotFound(ResourceNotFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage(), null);
     }
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiError> handleBusinessException(BusinessException ex) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(buildError(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage()));
+    public ResponseEntity<ApiErrorResponse> handleBusinessException(BusinessException ex) {
+        return buildResponse(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), null);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiErrorResponse> handleIllegalArgument(IllegalArgumentException ex) {
+        return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+    }
+
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<ApiErrorResponse> handleBadCredentials(BadCredentialsException ex) {
+        return buildResponse(HttpStatus.UNAUTHORIZED, "Credenciales inválidas", null);
     }
 
     @ExceptionHandler(InsufficientBalanceException.class)
-    public ResponseEntity<ApiError> handleInsufficientBalance(InsufficientBalanceException ex) {
-        return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
-                .body(buildError(HttpStatus.PAYMENT_REQUIRED, ex.getMessage()));
+    public ResponseEntity<ApiErrorResponse> handleInsufficientBalance(InsufficientBalanceException ex) {
+        return buildResponse(HttpStatus.PAYMENT_REQUIRED, ex.getMessage(), null);
     }
 
     @ExceptionHandler(UnauthorizedOperationException.class)
-    public ResponseEntity<ApiError> handleUnauthorized(UnauthorizedOperationException ex) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage()));
+    public ResponseEntity<ApiErrorResponse> handleUnauthorized(UnauthorizedOperationException ex) {
+        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage(), null);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex) {
-        Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach(error -> {
-            String field = ((FieldError) error).getField();
-            String message = error.getDefaultMessage();
-            errors.put(field, message);
-        });
+    public ResponseEntity<ApiErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+        List<String> errors = ex.getBindingResult()
+                .getAllErrors()
+                .stream()
+                .map(error -> {
+                    if (error instanceof FieldError fieldError) {
+                        return fieldError.getField() + ": " + fieldError.getDefaultMessage();
+                    }
+                    return error.getDefaultMessage();
+                })
+                .toList();
 
-        ApiError apiError = ApiError.builder()
-                .timestamp(OffsetDateTime.now())
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error("Validation Failed")
-                .message("One or more fields are invalid")
-                .validationErrors(errors)
-                .build();
-
-        return ResponseEntity.badRequest().body(apiError);
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
+                "One or more fields are invalid",
+                errors
+        );
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleGenericException(Exception ex) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(buildError(HttpStatus.INTERNAL_SERVER_ERROR,
-                        "An unexpected error occurred. Please try again."));
+    public ResponseEntity<ApiErrorResponse> handleGenericException(Exception ex) {
+        log.error("Unhandled exception", ex);
+        ex.printStackTrace();
+
+        return buildResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ex.getClass().getSimpleName() + ": " + ex.getMessage(),
+                null
+        );
     }
 
-    private ApiError buildError(HttpStatus status, String message) {
-        return ApiError.builder()
+    private ResponseEntity<ApiErrorResponse> buildResponse(
+            HttpStatus status,
+            String message,
+            List<String> validationErrors
+    ) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
                 .timestamp(OffsetDateTime.now())
                 .status(status.value())
                 .error(status.getReasonPhrase())
                 .message(message)
+                .validationErrors(validationErrors)
                 .build();
-    }
 
-    @Data @Builder
-    public static class ApiError {
-        private OffsetDateTime timestamp;
-        private int status;
-        private String error;
-        private String message;
-        private Map<String, String> validationErrors;
+        return ResponseEntity.status(status).body(response);
     }
 }
 
 // ===================== Excepciones de Dominio =====================
 
 class ResourceNotFoundException extends RuntimeException {
-    public ResourceNotFoundException(String message) { super(message); }
+    public ResourceNotFoundException(String message) {
+        super(message);
+    }
 }
 
 class BusinessException extends RuntimeException {
-    public BusinessException(String message) { super(message); }
+    public BusinessException(String message) {
+        super(message);
+    }
 }
 
 class InsufficientBalanceException extends RuntimeException {
-    public InsufficientBalanceException(String message) { super(message); }
+    public InsufficientBalanceException(String message) {
+        super(message);
+    }
 }
 
 class UnauthorizedOperationException extends RuntimeException {
-    public UnauthorizedOperationException(String message) { super(message); }
+    public UnauthorizedOperationException(String message) {
+        super(message);
+    }
 }

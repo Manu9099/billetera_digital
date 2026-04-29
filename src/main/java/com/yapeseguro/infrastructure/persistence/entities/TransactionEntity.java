@@ -14,7 +14,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "transactions", schema = "yape")
 @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
-class TransactionEntity {
+public class TransactionEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

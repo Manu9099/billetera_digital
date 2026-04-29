@@ -3,6 +3,8 @@ package com.yapeseguro.api.controllers;
 import com.yapeseguro.api.dto.request.GoogleLoginRequest;
 import com.yapeseguro.api.dto.request.LoginRequest;
 import com.yapeseguro.api.dto.request.RegisterRequest;
+import com.yapeseguro.api.dto.response.AuthResponse;
+import com.yapeseguro.application.services.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -14,25 +16,23 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class AuthController {
 
-    // TODO: inyectar AuthService
+    private final AuthService authService;
 
     /**
      * POST /auth/register
      */
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<Void> register(@Valid @RequestBody RegisterRequest request) {
-        // authService.register(request)
-        return ResponseEntity.status(HttpStatus.CREATED).build();
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
     }
 
     /**
      * POST /auth/login
      */
     @PostMapping("/login")
-    public ResponseEntity<Void> login(@Valid @RequestBody LoginRequest request) {
-        // authService.login(request)
-        return ResponseEntity.ok().build();
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
+        return ResponseEntity.ok(authService.login(request));
     }
 
     /**
@@ -40,7 +40,6 @@ public class AuthController {
      */
     @PostMapping("/refresh")
     public ResponseEntity<Void> refresh(@RequestHeader("X-Refresh-Token") String refreshToken) {
-        // authService.refresh(refreshToken)
         return ResponseEntity.ok().build();
     }
 

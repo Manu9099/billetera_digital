@@ -12,7 +12,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "wallets", schema = "yape")
 @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
-class WalletEntity {
+public class WalletEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

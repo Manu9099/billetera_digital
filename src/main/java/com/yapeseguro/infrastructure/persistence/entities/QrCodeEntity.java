@@ -13,7 +13,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "qr_codes", schema = "yape")
 @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
-class QrCodeEntity {
+public class QrCodeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
