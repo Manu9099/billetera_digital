@@ -12,8 +12,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-
-
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -24,46 +23,73 @@ public class TransactionController {
     private final TransactionService transactionService;
 
     /**
-     * POST /transactions/p2p — transferencia P2P real
+     * POST /transactions/p2p
+     * Transferencia P2P real entre billeteras.
      */
     @PostMapping("/p2p")
-    @ResponseStatus(HttpStatus.CREATED)
     public ResponseEntity<TransactionResponse> sendP2P(
             @Valid @RequestBody P2PRequest request,
             @AuthenticationPrincipal UserDetails user
     ) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(transactionService.sendP2P(request, user.getUsername()));
+        TransactionResponse response = transactionService.sendP2P(
+                request,
+                user.getUsername()
+        );
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     /**
-     * POST /transactions/marketplace — Feature #1: Yape Seguro
+     * POST /transactions/marketplace
+     * Pendiente: flujo escrow / marketplace.
+     *
+     * Se deja explícitamente como 501 para no devolver un 201 falso
+     * mientras la lógica real aún no esté implementada.
      */
     @PostMapping("/marketplace")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<Void> marketplacePayment(
+    public ResponseEntity<Map<String, String>> marketplacePayment(
             @Valid @RequestBody MarketplaceRequest request,
             @AuthenticationPrincipal UserDetails user
     ) {
-        return ResponseEntity.status(HttpStatus.CREATED).build();
+        return ResponseEntity
+                .status(HttpStatus.NOT_IMPLEMENTED)
+                .body(Map.of(
+                        "code", "MARKETPLACE_NOT_IMPLEMENTED",
+                        "message", "El flujo marketplace todavía no está implementado."
+                ));
     }
 
     /**
-     * PATCH /transactions/{txId}/confirm-receipt — comprador confirma
+     * PATCH /transactions/{txId}/confirm-receipt
+     * Pendiente: confirmación de recepción del comprador.
      */
     @PatchMapping("/{txId}/confirm-receipt")
-    public ResponseEntity<Void> confirmReceipt(
+    public ResponseEntity<Map<String, String>> confirmReceipt(
             @PathVariable UUID txId,
             @AuthenticationPrincipal UserDetails user
     ) {
-        return ResponseEntity.ok().build();
+        return ResponseEntity
+                .status(HttpStatus.NOT_IMPLEMENTED)
+                .body(Map.of(
+                        "code", "CONFIRM_RECEIPT_NOT_IMPLEMENTED",
+                        "message", "La confirmación de recepción todavía no está implementada."
+                ));
     }
 
     /**
-     * GET /transactions/{txId}/receipt — comprobante
+     * GET /transactions/{txId}/receipt
+     * Pendiente: generación de comprobante.
      */
     @GetMapping("/{txId}/receipt")
-    public ResponseEntity<Void> getReceipt(@PathVariable UUID txId) {
-        return ResponseEntity.ok().build();
+    public ResponseEntity<Map<String, String>> getReceipt(
+            @PathVariable UUID txId,
+            @AuthenticationPrincipal UserDetails user
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_IMPLEMENTED)
+                .body(Map.of(
+                        "code", "RECEIPT_NOT_IMPLEMENTED",
+                        "message", "El comprobante de transacción todavía no está implementado."
+                ));
     }
 }

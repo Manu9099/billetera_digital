@@ -12,8 +12,15 @@ import java.util.UUID;
 public class TransactionResponse {
 
     private UUID id;
+
     private UUID walletFromId;
     private UUID walletToId;
+
+    private UUID senderUserId;
+    private UUID recipientUserId;
+
+    private String senderName;
+    private String recipientName;
 
     private BigDecimal amount;
     private String currency;
@@ -22,11 +29,13 @@ public class TransactionResponse {
     private String status;
     private String marketplaceStatus;
 
-    private String description;
     private String concept;
+    private String description;
     private String reference;
     private String notes;
 
+    private OffsetDateTime holdExpiresAt;
     private OffsetDateTime completedAt;
     private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 }

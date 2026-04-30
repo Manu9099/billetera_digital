@@ -1,6 +1,7 @@
 package com.yapeseguro.application.services;
 
 import com.yapeseguro.api.dto.request.P2PRequest;
+import com.yapeseguro.api.dto.response.PageResponse;
 import com.yapeseguro.api.dto.response.TransactionResponse;
 import com.yapeseguro.infrastructure.persistence.entities.TransactionEntity;
 import com.yapeseguro.infrastructure.persistence.entities.UserEntity;
@@ -9,20 +10,24 @@ import com.yapeseguro.infrastructure.persistence.repositories.TransactionReposit
 import com.yapeseguro.infrastructure.persistence.repositories.UserRepository;
 import com.yapeseguro.infrastructure.persistence.repositories.WalletRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import com.yapeseguro.api.dto.response.PageResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class TransactionService {
+
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final UserRepository userRepository;
     private final WalletRepository walletRepository;
@@ -33,84 +38,98 @@ public class TransactionService {
         UserEntity sender = getUserByUsername(username);
 
         UserEntity recipient = userRepository.findById(request.getRecipientUserId())
-                .orElseThrow(() -> new IllegalArgumentException("Usuario receptor no encontrado"));
+                .orElseThrow(() -> new IllegalArgumentException("Usuario destinatario no encontrado"));
 
         if (sender.getId().equals(recipient.getId())) {
             throw new IllegalArgumentException("No puedes transferirte dinero a ti mismo");
         }
 
-        WalletEntity sourceWallet = walletRepository.findById(request.getSourceWalletId())
-                .orElseThrow(() -> new IllegalArgumentException("Billetera origen no encontrada"));
-
-        validateSourceWalletBelongsToSender(sourceWallet, sender);
-        validateWalletIsActive(sourceWallet);
-
-        WalletEntity targetWallet = walletRepository
-                .findByUserAndWalletType(recipient, WalletEntity.WalletType.PERSONAL)
-                .orElseThrow(() -> new IllegalArgumentException("El receptor no tiene billetera personal"));
-
-        validateWalletIsActive(targetWallet);
-
         BigDecimal amount = request.getAmount();
 
-        if (safe(sourceWallet.getAvailableBalance()).compareTo(amount) < 0) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("El monto debe ser mayor a cero");
+        }
+
+        WalletEntity sourceWalletRef = walletRepository.findById(request.getSourceWalletId())
+                .orElseThrow(() -> new IllegalArgumentException("Billetera origen no encontrada"));
+
+        if (!sourceWalletRef.getUser().getId().equals(sender.getId())) {
+            throw new IllegalArgumentException("No tienes permiso para usar esta billetera origen");
+        }
+
+        if (sourceWalletRef.getWalletType() != WalletEntity.WalletType.PERSONAL) {
+            throw new IllegalArgumentException("Las transferencias P2P solo pueden salir de una billetera personal");
+        }
+
+        WalletEntity recipientWalletRef = walletRepository
+                .findByUserAndWalletType(recipient, WalletEntity.WalletType.PERSONAL)
+                .orElseThrow(() -> new IllegalArgumentException("El usuario destinatario no tiene billetera personal"));
+
+        WalletEntity sourceWallet;
+        WalletEntity recipientWallet;
+
+        UUID sourceWalletId = sourceWalletRef.getId();
+        UUID recipientWalletId = recipientWalletRef.getId();
+
+        if (sourceWalletId.compareTo(recipientWalletId) <= 0) {
+            WalletEntity firstLocked = lockWallet(sourceWalletId);
+            WalletEntity secondLocked = lockWallet(recipientWalletId);
+
+            sourceWallet = firstLocked.getId().equals(sourceWalletId) ? firstLocked : secondLocked;
+            recipientWallet = firstLocked.getId().equals(recipientWalletId) ? firstLocked : secondLocked;
+        } else {
+            WalletEntity firstLocked = lockWallet(recipientWalletId);
+            WalletEntity secondLocked = lockWallet(sourceWalletId);
+
+            sourceWallet = firstLocked.getId().equals(sourceWalletId) ? firstLocked : secondLocked;
+            recipientWallet = firstLocked.getId().equals(recipientWalletId) ? firstLocked : secondLocked;
+        }
+
+        validateP2PWallets(sourceWallet, recipientWallet);
+
+        if (!sourceWallet.getCurrency().equals(recipientWallet.getCurrency())) {
+            throw new IllegalArgumentException("Las billeteras no usan la misma moneda");
+        }
+
+        BigDecimal sourceBalance = safe(sourceWallet.getBalance());
+        BigDecimal sourceAvailableBalance = safe(sourceWallet.getAvailableBalance());
+
+        if (sourceAvailableBalance.compareTo(amount) < 0) {
             throw new IllegalArgumentException("Saldo insuficiente");
         }
 
-        applyDebit(sourceWallet, amount);
-        applyCredit(targetWallet, amount);
-
         OffsetDateTime now = OffsetDateTime.now();
 
+        sourceWallet.setBalance(sourceBalance.subtract(amount));
+        sourceWallet.setAvailableBalance(sourceAvailableBalance.subtract(amount));
+        sourceWallet.setMonthlyExpenses(safe(sourceWallet.getMonthlyExpenses()).add(amount));
+        sourceWallet.setDailyTxCount(sourceWallet.getDailyTxCount() + 1);
         sourceWallet.setLastTransactionAt(now);
-        targetWallet.setLastTransactionAt(now);
 
-        walletRepository.save(sourceWallet);
-        walletRepository.save(targetWallet);
+        recipientWallet.setBalance(safe(recipientWallet.getBalance()).add(amount));
+        recipientWallet.setAvailableBalance(safe(recipientWallet.getAvailableBalance()).add(amount));
+        recipientWallet.setMonthlyRevenue(safe(recipientWallet.getMonthlyRevenue()).add(amount));
+        recipientWallet.setDailyTxCount(recipientWallet.getDailyTxCount() + 1);
+        recipientWallet.setLastTransactionAt(now);
+
+        walletRepository.saveAll(List.of(sourceWallet, recipientWallet));
 
         TransactionEntity transaction = TransactionEntity.builder()
                 .walletFrom(sourceWallet)
-                .walletTo(targetWallet)
+                .walletTo(recipientWallet)
                 .amount(amount)
                 .currency(sourceWallet.getCurrency())
                 .type(TransactionEntity.TxType.P2P)
                 .status(TransactionEntity.TxStatus.COMPLETED)
                 .marketplaceStatus(TransactionEntity.MpStatus.NORMAL)
-                .description("Transferencia P2P")
                 .concept(request.getConcept())
+                .description("Transferencia P2P")
+                .reference(generateReference("P2P"))
                 .notes(request.getNotes())
-                .reference(generateUniqueReference())
                 .completedAt(now)
                 .build();
 
-        TransactionEntity savedTransaction = transactionRepository.save(transaction);
-
-        return toResponse(savedTransaction);
-    }
-
-    private UserEntity getUserByUsername(String username) {
-        return userRepository.findByEmail(username)
-                .or(() -> userRepository.findByPhoneNumber(username))
-                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
-    }
-
-    private void validateSourceWalletBelongsToSender(WalletEntity wallet, UserEntity sender) {
-        if (!wallet.getUser().getId().equals(sender.getId())) {
-            throw new IllegalArgumentException("No tienes permiso para usar esta billetera");
-        }
-    }
-
-    private void validateWalletIsActive(WalletEntity wallet) {
-        if (!wallet.isActive()) {
-            throw new IllegalArgumentException("La billetera no está activa");
-        }
-    }
-
-    private void applyDebit(WalletEntity wallet, BigDecimal amount) {
-        wallet.setBalance(safe(wallet.getBalance()).subtract(amount));
-        wallet.setAvailableBalance(safe(wallet.getAvailableBalance()).subtract(amount));
-        wallet.setMonthlyExpenses(safe(wallet.getMonthlyExpenses()).add(amount));
-        wallet.setDailyTxCount(wallet.getDailyTxCount() + 1);
+        return toResponse(transactionRepository.save(transaction));
     }
 
     @Transactional(readOnly = true)
@@ -125,71 +144,126 @@ public class TransactionService {
         WalletEntity wallet = walletRepository.findById(walletId)
                 .orElseThrow(() -> new IllegalArgumentException("Billetera no encontrada"));
 
-        validateSourceWalletBelongsToSender(wallet, user);
+        if (!wallet.getUser().getId().equals(user.getId())) {
+            throw new IllegalArgumentException("No tienes permiso para ver esta billetera");
+        }
 
-        int safePage = Math.max(page, 0);
-        int safeSize = Math.min(Math.max(size, 1), 50);
-
-        PageRequest pageRequest = PageRequest.of(
-                safePage,
-                safeSize,
+        Pageable pageable = PageRequest.of(
+                normalizePage(page),
+                normalizeSize(size),
                 Sort.by(Sort.Direction.DESC, "createdAt")
         );
 
-        Page<TransactionEntity> transactions = transactionRepository
-                .findByWalletFromOrWalletTo(wallet, wallet, pageRequest);
+        Page<TransactionResponse> transactions = transactionRepository
+                .findHistoryByWallet(wallet, pageable)
+                .map(this::toResponse);
 
-        return PageResponse.<TransactionResponse>builder()
-                .content(transactions.getContent()
-                        .stream()
-                        .map(this::toResponse)
-                        .toList())
-                .page(transactions.getNumber())
-                .size(transactions.getSize())
-                .totalElements(transactions.getTotalElements())
-                .totalPages(transactions.getTotalPages())
-                .first(transactions.isFirst())
-                .last(transactions.isLast())
-                .build();
+        return toPageResponse(transactions);
     }
 
-    private void applyCredit(WalletEntity wallet, BigDecimal amount) {
-        wallet.setBalance(safe(wallet.getBalance()).add(amount));
-        wallet.setAvailableBalance(safe(wallet.getAvailableBalance()).add(amount));
-        wallet.setMonthlyRevenue(safe(wallet.getMonthlyRevenue()).add(amount));
-        wallet.setDailyTxCount(wallet.getDailyTxCount() + 1);
+    private WalletEntity lockWallet(UUID walletId) {
+        return walletRepository.findByIdForUpdate(walletId)
+                .orElseThrow(() -> new IllegalArgumentException("Billetera no encontrada"));
     }
 
-    private BigDecimal safe(BigDecimal value) {
-        return value != null ? value : BigDecimal.ZERO;
+    private void validateP2PWallets(WalletEntity sourceWallet, WalletEntity recipientWallet) {
+        if (!sourceWallet.isActive()) {
+            throw new IllegalArgumentException("La billetera origen no está activa");
+        }
+
+        if (!recipientWallet.isActive()) {
+            throw new IllegalArgumentException("La billetera destinataria no está activa");
+        }
+
+        if (sourceWallet.getWalletType() != WalletEntity.WalletType.PERSONAL) {
+            throw new IllegalArgumentException("La billetera origen debe ser personal");
+        }
+
+        if (recipientWallet.getWalletType() != WalletEntity.WalletType.PERSONAL) {
+            throw new IllegalArgumentException("La billetera destino debe ser personal");
+        }
     }
 
-    private String generateUniqueReference() {
-        String reference;
-
-        do {
-            reference = "P2P-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
-        } while (transactionRepository.existsByReference(reference));
-
-        return reference;
+    private UserEntity getUserByUsername(String username) {
+        return userRepository.findByEmail(username)
+                .or(() -> userRepository.findByPhoneNumber(username))
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
     }
 
     private TransactionResponse toResponse(TransactionEntity transaction) {
+        WalletEntity walletFrom = transaction.getWalletFrom();
+        WalletEntity walletTo = transaction.getWalletTo();
+
+        UserEntity sender = walletFrom.getUser();
+        UserEntity recipient = walletTo.getUser();
+
         return TransactionResponse.builder()
                 .id(transaction.getId())
-                .walletFromId(transaction.getWalletFrom().getId())
-                .walletToId(transaction.getWalletTo().getId())
+                .walletFromId(walletFrom.getId())
+                .walletToId(walletTo.getId())
+                .senderUserId(sender.getId())
+                .recipientUserId(recipient.getId())
+                .senderName(fullName(sender))
+                .recipientName(fullName(recipient))
                 .amount(transaction.getAmount())
                 .currency(transaction.getCurrency())
                 .type(transaction.getType().name())
                 .status(transaction.getStatus().name())
                 .marketplaceStatus(transaction.getMarketplaceStatus().name())
-                .description(transaction.getDescription())
                 .concept(transaction.getConcept())
+                .description(transaction.getDescription())
                 .reference(transaction.getReference())
                 .notes(transaction.getNotes())
+                .holdExpiresAt(transaction.getHoldExpiresAt())
                 .completedAt(transaction.getCompletedAt())
                 .createdAt(transaction.getCreatedAt())
+                .updatedAt(transaction.getUpdatedAt())
                 .build();
+    }
+
+    private PageResponse<TransactionResponse> toPageResponse(Page<TransactionResponse> page) {
+        return PageResponse.<TransactionResponse>builder()
+                .content(page.getContent())
+                .page(page.getNumber())
+                .size(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .first(page.isFirst())
+                .last(page.isLast())
+                .build();
+    }
+
+    private String generateReference(String prefix) {
+        String reference;
+
+        do {
+            reference = prefix
+                    + "-"
+                    + OffsetDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                    + "-"
+                    + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        } while (transactionRepository.existsByReference(reference));
+
+        return reference;
+    }
+
+    private int normalizePage(int page) {
+        return Math.max(page, 0);
+    }
+
+    private int normalizeSize(int size) {
+        if (size <= 0) {
+            return 20;
+        }
+
+        return Math.min(size, MAX_PAGE_SIZE);
+    }
+
+    private String fullName(UserEntity user) {
+        return (user.getFirstName() + " " + user.getLastName()).trim();
+    }
+
+    private BigDecimal safe(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
     }
 }
