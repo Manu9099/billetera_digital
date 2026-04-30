@@ -2,12 +2,15 @@ package com.yapeseguro.api.controllers;
 
 import com.yapeseguro.api.dto.request.AddInventoryItemRequest;
 import com.yapeseguro.api.dto.request.CreateBusinessProfileRequest;
+import com.yapeseguro.api.dto.request.CreateQrCodeRequest;
 import com.yapeseguro.api.dto.request.UpdateBusinessProfileRequest;
 import com.yapeseguro.api.dto.request.UpdateInventoryItemRequest;
 import com.yapeseguro.api.dto.response.BusinessProfileResponse;
 import com.yapeseguro.api.dto.response.InventoryItemResponse;
+import com.yapeseguro.api.dto.response.QrCodeResponse;
 import com.yapeseguro.application.services.BusinessProfileService;
 import com.yapeseguro.application.services.InventoryService;
+import com.yapeseguro.application.services.QrCodeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -26,6 +29,7 @@ public class BusinessController {
 
     private final BusinessProfileService businessProfileService;
     private final InventoryService inventoryService;
+    private final QrCodeService qrCodeService;
 
     /**
      * POST /business/profile — crea el perfil de negocio del usuario autenticado.
@@ -136,6 +140,73 @@ public class BusinessController {
             @AuthenticationPrincipal UserDetails user
     ) {
         inventoryService.deactivateInventoryItem(itemId, user.getUsername());
+
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * POST /business/inventory/{itemId}/qr — crea o actualiza QR de un producto.
+     */
+    @PostMapping("/inventory/{itemId}/qr")
+    public ResponseEntity<QrCodeResponse> createInventoryItemQr(
+            @PathVariable UUID itemId,
+            @Valid @RequestBody(required = false) CreateQrCodeRequest request,
+            @AuthenticationPrincipal UserDetails user
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(qrCodeService.createInventoryItemQr(
+                        itemId,
+                        request,
+                        user.getUsername()
+                ));
+    }
+
+    /**
+     * POST /business/qr — crea QR general del negocio.
+     */
+    @PostMapping("/qr")
+    public ResponseEntity<QrCodeResponse> createBusinessQr(
+            @Valid @RequestBody(required = false) CreateQrCodeRequest request,
+            @AuthenticationPrincipal UserDetails user
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(qrCodeService.createBusinessQr(request, user.getUsername()));
+    }
+
+    /**
+     * GET /business/qr — lista QRs activos del negocio.
+     */
+    @GetMapping("/qr")
+    public ResponseEntity<List<QrCodeResponse>> getMyQrCodes(
+            @AuthenticationPrincipal UserDetails user
+    ) {
+        return ResponseEntity.ok(
+                qrCodeService.getMyQrCodes(user.getUsername())
+        );
+    }
+
+    /**
+     * GET /business/qr/{qrId} — detalle de QR activo del negocio.
+     */
+    @GetMapping("/qr/{qrId}")
+    public ResponseEntity<QrCodeResponse> getMyQrCode(
+            @PathVariable UUID qrId,
+            @AuthenticationPrincipal UserDetails user
+    ) {
+        return ResponseEntity.ok(
+                qrCodeService.getMyQrCode(qrId, user.getUsername())
+        );
+    }
+
+    /**
+     * DELETE /business/qr/{qrId} — desactiva QR del negocio.
+     */
+    @DeleteMapping("/qr/{qrId}")
+    public ResponseEntity<Void> deactivateQrCode(
+            @PathVariable UUID qrId,
+            @AuthenticationPrincipal UserDetails user
+    ) {
+        qrCodeService.deactivateQrCode(qrId, user.getUsername());
 
         return ResponseEntity.noContent().build();
     }

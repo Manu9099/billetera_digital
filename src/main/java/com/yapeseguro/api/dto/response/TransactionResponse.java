@@ -29,6 +29,8 @@ public class TransactionResponse {
     private String status;
     private String marketplaceStatus;
 
+    private UUID marketplaceDisputeId;
+
     private String description;
     private String concept;
     private String reference;

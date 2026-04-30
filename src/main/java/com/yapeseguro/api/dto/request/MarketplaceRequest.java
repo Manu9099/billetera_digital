@@ -14,18 +14,21 @@ import java.util.UUID;
 @Data
 public class MarketplaceRequest {
 
-    @NotNull
+    @NotNull(message = "El vendedor es obligatorio")
     private UUID sellerUserId;
 
-    @NotNull
-    @DecimalMin("0.01")
+    @NotNull(message = "El monto es obligatorio")
+    @DecimalMin(value = "0.01", message = "El monto debe ser mayor a cero")
     private BigDecimal amount;
 
-    @NotBlank
-    @Size(max = 255)
+    @NotBlank(message = "La descripción del producto es obligatoria")
+    @Size(max = 255, message = "La descripción del producto no puede exceder 255 caracteres")
     private String productDescription;
 
-    @Min(1)
-    @Max(30)
+    @Min(value = 1, message = "La retención mínima es de 1 día")
+    @Max(value = 30, message = "La retención máxima es de 30 días")
     private int holdDays = 7;
+
+    @Size(max = 500, message = "Las notas no pueden exceder 500 caracteres")
+    private String notes;
 }
