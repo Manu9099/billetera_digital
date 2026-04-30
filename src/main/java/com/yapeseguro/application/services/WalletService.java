@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,11 +25,28 @@ public class WalletService {
     public List<WalletResponse> getMyWallets(String username) {
         UserEntity user = getUserByUsername(username);
 
-        return walletRepository.findByUser(user)
-                .stream()
-                .sorted(Comparator.comparingInt(this::walletOrder))
-                .map(this::toResponse)
-                .toList();
+        WalletEntity personalWallet = walletRepository
+                .findByUserAndWalletType(user, WalletEntity.WalletType.PERSONAL)
+                .orElseThrow(() -> new IllegalArgumentException("El usuario no tiene billetera personal"));
+
+        return List.of(toResponse(personalWallet));
+    }
+
+    @Transactional
+    public WalletResponse activateBusinessWallet(String username) {
+        UserEntity user = getUserByUsername(username);
+
+        WalletEntity businessWallet = walletRepository
+                .findByUserAndWalletType(user, WalletEntity.WalletType.BUSINESS)
+                .orElseGet(() -> buildBusinessWallet(user));
+
+        if (!businessWallet.isActive()) {
+            businessWallet.setActive(true);
+        }
+
+        WalletEntity savedWallet = walletRepository.save(businessWallet);
+
+        return toResponse(savedWallet);
     }
 
     @Transactional
@@ -61,22 +77,25 @@ public class WalletService {
         return toResponse(savedWallet);
     }
 
+    private WalletEntity buildBusinessWallet(UserEntity user) {
+        return WalletEntity.builder()
+                .user(user)
+                .walletType(WalletEntity.WalletType.BUSINESS)
+                .balance(BigDecimal.ZERO)
+                .availableBalance(BigDecimal.ZERO)
+                .holdAmount(BigDecimal.ZERO)
+                .currency("PEN")
+                .monthlyRevenue(BigDecimal.ZERO)
+                .monthlyExpenses(BigDecimal.ZERO)
+                .dailyTxCount(0)
+                .active(true)
+                .build();
+    }
+
     private UserEntity getUserByUsername(String username) {
         return userRepository.findByEmail(username)
                 .or(() -> userRepository.findByPhoneNumber(username))
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
-    }
-
-    private int walletOrder(WalletEntity wallet) {
-        if (wallet.getWalletType() == WalletEntity.WalletType.PERSONAL) {
-            return 1;
-        }
-
-        if (wallet.getWalletType() == WalletEntity.WalletType.BUSINESS) {
-            return 2;
-        }
-
-        return 99;
     }
 
     private WalletResponse toResponse(WalletEntity wallet) {
