@@ -21,6 +21,10 @@ public interface TransactionRepository extends JpaRepository<TransactionEntity, 
             value = """
                     select t
                     from TransactionEntity t
+                    join fetch t.walletFrom wf
+                    join fetch wf.user
+                    join fetch t.walletTo wt
+                    join fetch wt.user
                     where t.walletFrom = :wallet
                        or t.walletTo = :wallet
                     """,
@@ -35,4 +39,15 @@ public interface TransactionRepository extends JpaRepository<TransactionEntity, 
             @Param("wallet") WalletEntity wallet,
             Pageable pageable
     );
+
+    @Query("""
+            select t
+            from TransactionEntity t
+            join fetch t.walletFrom wf
+            join fetch wf.user
+            join fetch t.walletTo wt
+            join fetch wt.user
+            where t.id = :id
+            """)
+    Optional<TransactionEntity> findDetailedById(@Param("id") UUID id);
 }

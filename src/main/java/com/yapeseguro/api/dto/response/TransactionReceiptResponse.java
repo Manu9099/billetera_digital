@@ -9,18 +9,19 @@ import java.util.UUID;
 
 @Data
 @Builder
-public class TransactionResponse {
+public class TransactionReceiptResponse {
 
-    private UUID id;
-
-    private UUID walletFromId;
-    private UUID walletToId;
+    private UUID transactionId;
+    private String reference;
 
     private UUID senderUserId;
     private UUID recipientUserId;
 
     private String senderName;
     private String recipientName;
+
+    private UUID walletFromId;
+    private UUID walletToId;
 
     private BigDecimal amount;
     private String currency;
@@ -29,13 +30,10 @@ public class TransactionResponse {
     private String status;
     private String marketplaceStatus;
 
-    private String description;
     private String concept;
-    private String reference;
+    private String description;
     private String notes;
 
-    private OffsetDateTime holdExpiresAt;
     private OffsetDateTime completedAt;
     private OffsetDateTime createdAt;
-    private OffsetDateTime updatedAt;
 }

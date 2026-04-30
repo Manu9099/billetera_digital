@@ -1,23 +1,19 @@
 package com.yapeseguro.api.dto.request;
 
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
-public class CreateBusinessProfileRequest {
+public class UpdateBusinessProfileRequest {
 
-    @NotBlank
     @Size(max = 255)
     private String businessName;
 
-    @NotBlank
     @Pattern(regexp = "^\\d{11}$", message = "RUC must be 11 digits")
     private String ruc;
 
-    @NotBlank
     @Size(max = 100)
     private String businessCategory;
 
@@ -46,4 +42,10 @@ public class CreateBusinessProfileRequest {
 
     @Size(max = 255)
     private String website;
+
+    private Boolean autoConfirmReceipts;
+
+    private Boolean showFrequentCustomers;
+
+    private Boolean active;
 }
