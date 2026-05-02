@@ -8,6 +8,8 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
 
 @Data
 public class CreateGroupRequest {
@@ -16,16 +18,17 @@ public class CreateGroupRequest {
     @Size(max = 255)
     private String groupName;
 
+    @Size(max = 2000)
     private String description;
 
     @NotBlank
-    private String groupType;
+    private String groupType = "OTHER";
 
     @NotNull
     @DecimalMin("0.01")
     private BigDecimal totalAmount;
 
-    private BigDecimal perPersonAmount;
-
     private OffsetDateTime targetDate;
+
+    private List<UUID> memberUserIds;
 }

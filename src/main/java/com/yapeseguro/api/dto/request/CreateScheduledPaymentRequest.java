@@ -33,8 +33,11 @@ public class CreateScheduledPaymentRequest {
     @Size(max = 100)
     private String concept;
 
+    @Size(max = 2000)
+    private String description;
+
     @NotBlank
-    private String frequency; // DAILY, WEEKLY, BIWEEKLY, MONTHLY
+    private String frequency;
 
     @Min(1)
     @Max(28)

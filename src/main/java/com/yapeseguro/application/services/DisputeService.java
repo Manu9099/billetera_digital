@@ -31,6 +31,7 @@ public class DisputeService {
     private final WalletRepository walletRepository;
     private final TransactionRepository transactionRepository;
     private final DisputeRepository disputeRepository;
+    private final ReceiptService receiptService;
 
     @Transactional
     public DisputeResponse openMarketplaceDispute(
@@ -188,11 +189,16 @@ public class DisputeService {
         dispute.setRefundAmount(amount);
         dispute.setResolvedAt(now);
         dispute.setClosedAt(now);
-        dispute.setResolutionNotes("Resolución automática: disputa vencida sin resolución manual. Se reembolsó el monto al comprador.");
+        dispute.setResolutionNotes(
+                "Resolución automática: disputa vencida sin resolución manual. Se reembolsó el monto al comprador."
+        );
 
         walletRepository.saveAll(List.of(buyerWallet, sellerBusinessWallet));
-        transactionRepository.save(transaction);
+
+        TransactionEntity savedTransaction = transactionRepository.save(transaction);
         disputeRepository.save(dispute);
+
+        receiptService.generateReceiptForTransaction(savedTransaction.getId());
     }
 
     private void validateCanOpenMarketplaceDispute(

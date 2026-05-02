@@ -84,4 +84,53 @@ public interface TransactionRepository extends JpaRepository<TransactionEntity, 
     List<TransactionEntity> findExpiredMarketplaceHoldsForUpdate(
             @Param("now") OffsetDateTime now
     );
+
+    @Query("""
+            select t
+            from TransactionEntity t
+            join fetch t.walletFrom wf
+            join fetch wf.user
+            join fetch t.walletTo wt
+            join fetch wt.user
+            where t.walletFrom = :wallet
+              and t.createdAt >= :start
+              and t.createdAt < :end
+              and t.status in :statuses
+              and t.type in :types
+            order by t.createdAt desc
+            """)
+    List<TransactionEntity> findOutgoingSpendingTransactions(
+            @Param("wallet") WalletEntity wallet,
+            @Param("start") OffsetDateTime start,
+            @Param("end") OffsetDateTime end,
+            @Param("statuses") List<TransactionEntity.TxStatus> statuses,
+            @Param("types") List<TransactionEntity.TxType> types
+    );
+
+    @Query("""
+            select count(t)
+            from TransactionEntity t
+            where (t.walletFrom = :wallet or t.walletTo = :wallet)
+              and t.createdAt >= :start
+              and t.createdAt < :end
+            """)
+    long countWalletTransactionsBetween(
+            @Param("wallet") WalletEntity wallet,
+            @Param("start") OffsetDateTime start,
+            @Param("end") OffsetDateTime end
+    );
+
+    @Query("""
+            select count(t)
+            from TransactionEntity t
+            where (t.walletFrom = :wallet or t.walletTo = :wallet)
+              and t.createdAt >= :start
+              and t.createdAt < :end
+              and t.marketplaceStatus = 'DISPUTED'
+            """)
+    long countWalletDisputedTransactionsBetween(
+            @Param("wallet") WalletEntity wallet,
+            @Param("start") OffsetDateTime start,
+            @Param("end") OffsetDateTime end
+    );
 }
