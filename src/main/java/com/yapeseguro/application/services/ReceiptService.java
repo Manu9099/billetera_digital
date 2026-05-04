@@ -46,13 +46,28 @@ public class ReceiptService {
         TransactionReceiptEntity receipt = receiptRepository.findByTransaction(transaction)
                 .orElseGet(() -> buildReceipt(transaction));
 
-        receipt.setReceiptHtml(buildReceiptHtml(receipt));
-        receipt.setQrCodeUrl(generateQrCodeDataUrl(buildValidationPayload(receipt)));
-        receipt.setReceiptPdfUrl("/receipts/transactions/" + transaction.getId() + "/pdf");
+        refreshGeneratedContent(receipt);
 
-        TransactionReceiptEntity savedReceipt = receiptRepository.save(receipt);
+        return toResponse(receiptRepository.save(receipt));
+    }
 
-        return toResponse(savedReceipt);
+    @Transactional
+    public ReceiptResponse getOrGenerateReceiptByTransaction(
+            UUID transactionId,
+            String username
+    ) {
+        TransactionEntity transaction = transactionRepository.findDetailedById(transactionId)
+                .orElseThrow(() -> new IllegalArgumentException("Transacción no encontrada"));
+
+        validateTransactionBelongsToUsername(transaction, username);
+        validateTransactionCanHaveReceipt(transaction);
+
+        TransactionReceiptEntity receipt = receiptRepository.findByTransaction(transaction)
+                .orElseGet(() -> buildReceipt(transaction));
+
+        refreshGeneratedContent(receipt);
+
+        return toResponse(receiptRepository.save(receipt));
     }
 
     @Transactional(readOnly = true)
@@ -71,7 +86,7 @@ public class ReceiptService {
         return toResponse(receipt);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public String getReceiptHtmlByTransaction(
             UUID transactionId,
             String username
@@ -80,11 +95,14 @@ public class ReceiptService {
                 .orElseThrow(() -> new IllegalArgumentException("Transacción no encontrada"));
 
         validateTransactionBelongsToUsername(transaction, username);
+        validateTransactionCanHaveReceipt(transaction);
 
         TransactionReceiptEntity receipt = receiptRepository.findByTransaction(transaction)
-                .orElseThrow(() -> new IllegalArgumentException("Comprobante no encontrado"));
+                .orElseGet(() -> buildReceipt(transaction));
 
-        return receipt.getReceiptHtml();
+        refreshGeneratedContent(receipt);
+
+        return receiptRepository.save(receipt).getReceiptHtml();
     }
 
     @Transactional
@@ -96,14 +114,22 @@ public class ReceiptService {
                 .orElseThrow(() -> new IllegalArgumentException("Transacción no encontrada"));
 
         validateTransactionBelongsToUsername(transaction, username);
+        validateTransactionCanHaveReceipt(transaction);
 
         TransactionReceiptEntity receipt = receiptRepository.findByTransaction(transaction)
-                .orElseThrow(() -> new IllegalArgumentException("Comprobante no encontrado"));
+                .orElseGet(() -> buildReceipt(transaction));
 
-        receipt.setPrintedCount(receipt.getPrintedCount() + 1);
-        receiptRepository.save(receipt);
+        refreshGeneratedContent(receipt);
 
-        return buildSimplePdf(receipt);
+        int currentPrintedCount = receipt.getPrintedCount() != null
+                ? receipt.getPrintedCount()
+                : 0;
+
+        receipt.setPrintedCount(currentPrintedCount + 1);
+
+        TransactionReceiptEntity savedReceipt = receiptRepository.save(receipt);
+
+        return buildSimplePdf(savedReceipt);
     }
 
     @Transactional(readOnly = true)
@@ -127,6 +153,12 @@ public class ReceiptService {
                 .marketplaceStatus(transaction.getMarketplaceStatus().name())
                 .issuedAt(receipt.getCreatedAt())
                 .build();
+    }
+
+    private void refreshGeneratedContent(TransactionReceiptEntity receipt) {
+        receipt.setQrCodeUrl(generateQrCodeDataUrl(buildValidationPayload(receipt)));
+        receipt.setReceiptHtml(buildReceiptHtml(receipt));
+        receipt.setReceiptPdfUrl("/receipts/transactions/" + receipt.getTransaction().getId() + "/pdf");
     }
 
     private TransactionReceiptEntity buildReceipt(TransactionEntity transaction) {
@@ -178,11 +210,13 @@ public class ReceiptService {
         UserEntity sender = transaction.getWalletFrom().getUser();
         UserEntity recipient = transaction.getWalletTo().getUser();
 
-        boolean belongsToSender = username.equals(sender.getEmail())
-                || username.equals(sender.getPhoneNumber());
+        boolean belongsToSender =
+                username.equals(sender.getEmail())
+                        || username.equals(sender.getPhoneNumber());
 
-        boolean belongsToRecipient = username.equals(recipient.getEmail())
-                || username.equals(recipient.getPhoneNumber());
+        boolean belongsToRecipient =
+                username.equals(recipient.getEmail())
+                        || username.equals(recipient.getPhoneNumber());
 
         if (!belongsToSender && !belongsToRecipient) {
             throw new IllegalArgumentException("No tienes permiso para ver este comprobante");
@@ -200,98 +234,106 @@ public class ReceiptService {
                     <title>Comprobante %s</title>
                     <style>
                         body {
-                            font-family: Arial, sans-serif;
+                            font-family: Arial, Helvetica, sans-serif;
                             background: #f4f6f8;
                             margin: 0;
                             padding: 32px;
-                            color: #1f2937;
+                            color: #111827;
                         }
                         .receipt {
                             max-width: 720px;
                             margin: 0 auto;
                             background: #ffffff;
                             border-radius: 18px;
-                            padding: 32px;
-                            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+                            padding: 28px;
+                            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.10);
                         }
                         .header {
                             display: flex;
                             justify-content: space-between;
-                            gap: 24px;
+                            gap: 16px;
                             border-bottom: 1px solid #e5e7eb;
-                            padding-bottom: 20px;
-                            margin-bottom: 24px;
+                            padding-bottom: 18px;
+                            margin-bottom: 22px;
                         }
-                        h1 {
-                            margin: 0;
+                        .brand {
                             font-size: 24px;
+                            font-weight: 800;
+                            letter-spacing: -0.03em;
                         }
-                        .badge {
+                        .status {
                             display: inline-block;
                             padding: 6px 12px;
                             border-radius: 999px;
                             background: #ecfdf5;
-                            color: #047857;
-                            font-weight: bold;
                             font-size: 12px;
+                            font-weight: 700;
+                            color: #065f46;
+                        }
+                        .amount {
+                            font-size: 38px;
+                            font-weight: 800;
+                            margin: 12px 0 4px;
                         }
                         .grid {
                             display: grid;
                             grid-template-columns: 1fr 1fr;
-                            gap: 16px;
+                            gap: 14px;
+                            margin-top: 18px;
                         }
                         .item {
                             background: #f9fafb;
-                            border-radius: 14px;
-                            padding: 14px;
+                            border: 1px solid #e5e7eb;
+                            border-radius: 12px;
+                            padding: 12px;
                         }
                         .label {
-                            color: #6b7280;
                             font-size: 12px;
+                            color: #6b7280;
                             margin-bottom: 4px;
                         }
                         .value {
-                            font-size: 15px;
+                            font-size: 14px;
                             font-weight: 700;
-                        }
-                        .amount {
-                            font-size: 32px;
-                            font-weight: 800;
-                            margin: 18px 0;
+                            word-break: break-word;
                         }
                         .qr {
                             margin-top: 24px;
                             text-align: center;
                             border-top: 1px solid #e5e7eb;
-                            padding-top: 24px;
+                            padding-top: 22px;
                         }
                         .qr img {
                             width: 180px;
                             height: 180px;
                         }
                         .footer {
-                            margin-top: 24px;
-                            color: #6b7280;
+                            margin-top: 18px;
                             font-size: 12px;
+                            color: #6b7280;
                             text-align: center;
                         }
                     </style>
                 </head>
                 <body>
-                    <section class="receipt">
-                        <div class="header">
+                    <main class="receipt">
+                        <section class="header">
                             <div>
-                                <h1>Comprobante YapeSeguro</h1>
-                                <p>%s</p>
+                                <div class="brand">YapeSeguro</div>
+                                <div>Comprobante de operación</div>
                             </div>
                             <div>
-                                <span class="badge">%s</span>
+                                <span class="status">%s</span>
                             </div>
-                        </div>
+                        </section>
 
-                        <div class="amount">%s %s</div>
+                        <section>
+                            <div class="label">Monto</div>
+                            <div class="amount">%s %s</div>
+                            <div>%s</div>
+                        </section>
 
-                        <div class="grid">
+                        <section class="grid">
                             <div class="item">
                                 <div class="label">N.º comprobante</div>
                                 <div class="value">%s</div>
@@ -321,29 +363,29 @@ public class ReceiptService {
                                 <div class="value">%s</div>
                             </div>
                             <div class="item">
-                                <div class="label">Estado</div>
+                                <div class="label">Estado marketplace</div>
                                 <div class="value">%s</div>
                             </div>
-                        </div>
+                        </section>
 
-                        <div class="qr">
-                            <p><strong>QR de validación</strong></p>
+                        <section class="qr">
+                            <div class="label">QR de validación</div>
                             <img src="%s" alt="QR de validación">
-                            <p>%s</p>
-                        </div>
+                            <div class="footer">%s</div>
+                        </section>
 
                         <div class="footer">
                             Comprobante generado automáticamente por YapeSeguro.
                         </div>
-                    </section>
+                    </main>
                 </body>
                 </html>
                 """.formatted(
                 escapeHtml(receipt.getReceiptNumber()),
-                escapeHtml(nullToDash(receipt.getDescription())),
                 escapeHtml(transaction.getStatus().name()),
-                escapeHtml(receipt.getCurrency()),
-                receipt.getAmount(),
+                escapeHtml(nullToDash(receipt.getCurrency())),
+                escapeHtml(receipt.getAmount().toPlainString()),
+                escapeHtml(nullToDash(receipt.getDescription())),
                 escapeHtml(receipt.getReceiptNumber()),
                 escapeHtml(transaction.getReference()),
                 escapeHtml(nullToDash(receipt.getBusinessName())),
@@ -351,7 +393,7 @@ public class ReceiptService {
                 escapeHtml(nullToDash(receipt.getCustomerName())),
                 escapeHtml(nullToDash(receipt.getConcept())),
                 escapeHtml(transaction.getType().name()),
-                escapeHtml(transaction.getStatus().name()),
+                escapeHtml(transaction.getMarketplaceStatus().name()),
                 escapeHtml(nullToDash(receipt.getQrCodeUrl())),
                 escapeHtml(buildValidationPayload(receipt))
         );
@@ -363,6 +405,7 @@ public class ReceiptService {
                     .encode(payload, BarcodeFormat.QR_CODE, 300, 300);
 
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
             MatrixToImageWriter.writeToStream(bitMatrix, "PNG", outputStream);
 
             String base64 = Base64.getEncoder().encodeToString(outputStream.toByteArray());
@@ -404,6 +447,7 @@ public class ReceiptService {
         };
 
         StringBuilder content = new StringBuilder();
+
         content.append("BT\n");
         content.append("/F1 12 Tf\n");
         content.append("50 790 Td\n");
@@ -419,7 +463,7 @@ public class ReceiptService {
 
         byte[] contentBytes = content.toString().getBytes(StandardCharsets.ISO_8859_1);
 
-        String[] objects = new String[] {
+        String[] objects = new String[]{
                 "<< /Type /Catalog /Pages 2 0 R >>",
                 "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
@@ -435,6 +479,7 @@ public class ReceiptService {
 
         for (int i = 0; i < objects.length; i++) {
             offsets[i + 1] = output.size();
+
             writePdf(output, (i + 1) + " 0 obj\n");
             writePdf(output, objects[i]);
             writePdf(output, "\nendobj\n");
@@ -525,7 +570,22 @@ public class ReceiptService {
     }
 
     private String fullName(UserEntity user) {
-        return (user.getFirstName() + " " + user.getLastName()).trim();
+        String firstName = normalize(user.getFirstName());
+        String lastName = normalize(user.getLastName());
+
+        if (firstName == null && lastName == null) {
+            return "-";
+        }
+
+        if (firstName == null) {
+            return lastName;
+        }
+
+        if (lastName == null) {
+            return firstName;
+        }
+
+        return firstName + " " + lastName;
     }
 
     private String normalize(String value) {
@@ -545,14 +605,23 @@ public class ReceiptService {
     }
 
     private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+
         return value
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
-                .replace("\"", "&quot;");
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private String escapePdf(String value) {
+        if (value == null) {
+            return "";
+        }
+
         return value
                 .replace("\\", "\\\\")
                 .replace("(", "\\(")
@@ -560,6 +629,10 @@ public class ReceiptService {
     }
 
     private String toPdfSafeText(String value) {
+        if (value == null) {
+            return "";
+        }
+
         String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "");
 

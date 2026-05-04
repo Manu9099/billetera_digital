@@ -11,7 +11,7 @@ public interface TransactionReceiptRepository extends JpaRepository<TransactionR
 
     Optional<TransactionReceiptEntity> findByTransaction(TransactionEntity transaction);
 
-    Optional<TransactionReceiptEntity> findByTransaction_Id(UUID transactionId);
+    Optional<TransactionReceiptEntity> findByTransactionId(UUID transactionId);
 
     Optional<TransactionReceiptEntity> findByReceiptNumber(String receiptNumber);
 

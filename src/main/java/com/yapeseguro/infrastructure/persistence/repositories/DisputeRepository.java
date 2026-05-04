@@ -35,6 +35,39 @@ public interface DisputeRepository extends JpaRepository<DisputeEntity, UUID> {
             join fetch wt.user
             join fetch d.createdByUser
             join fetch d.respondentUser
+            where d.id = :disputeId
+            """)
+    Optional<DisputeEntity> findDetailedById(
+            @Param("disputeId") UUID disputeId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select d
+            from DisputeEntity d
+            join fetch d.transaction t
+            join fetch t.walletFrom wf
+            join fetch wf.user
+            join fetch t.walletTo wt
+            join fetch wt.user
+            join fetch d.createdByUser
+            join fetch d.respondentUser
+            where d.id = :disputeId
+            """)
+    Optional<DisputeEntity> findDetailedByIdForUpdate(
+            @Param("disputeId") UUID disputeId
+    );
+
+    @Query("""
+            select d
+            from DisputeEntity d
+            join fetch d.transaction t
+            join fetch t.walletFrom wf
+            join fetch wf.user
+            join fetch t.walletTo wt
+            join fetch wt.user
+            join fetch d.createdByUser
+            join fetch d.respondentUser
             where t.id = :transactionId
             """)
     Optional<DisputeEntity> findDetailedByTransactionId(

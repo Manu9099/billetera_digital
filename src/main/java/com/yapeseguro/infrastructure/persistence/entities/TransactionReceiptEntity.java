@@ -41,7 +41,7 @@ public class TransactionReceiptEntity {
     @Column(nullable = false, precision = 14, scale = 2)
     private BigDecimal amount;
 
-    @Column(nullable = false, length = 3)
+    @Column(length = 3)
     private String currency;
 
     @Column(length = 255)
@@ -59,12 +59,14 @@ public class TransactionReceiptEntity {
     @Column(name = "qr_code_url", columnDefinition = "TEXT")
     private String qrCodeUrl;
 
+    @Builder.Default
     @Column(name = "printed_count", nullable = false)
     private Integer printedCount = 0;
 
     @Column(name = "emailed_to", length = 255)
     private String emailedTo;
 
+    @Builder.Default
     @Column(name = "sent_whatsapp", nullable = false)
     private boolean sentWhatsapp = false;
 

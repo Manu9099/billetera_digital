@@ -1,6 +1,7 @@
 package com.yapeseguro.application.services;
 
 import com.yapeseguro.api.dto.request.CreateDisputeRequest;
+import com.yapeseguro.api.dto.request.ResolveDisputeRequest;
 import com.yapeseguro.api.dto.response.DisputeResponse;
 import com.yapeseguro.infrastructure.persistence.entities.DisputeEntity;
 import com.yapeseguro.infrastructure.persistence.entities.TransactionEntity;
@@ -51,7 +52,6 @@ public class DisputeService {
         }
 
         OffsetDateTime now = OffsetDateTime.now();
-
         UserEntity seller = transaction.getWalletTo().getUser();
 
         DisputeEntity dispute = DisputeEntity.builder()
@@ -95,6 +95,18 @@ public class DisputeService {
     }
 
     @Transactional(readOnly = true)
+    public DisputeResponse getDisputeById(UUID disputeId, String username) {
+        UserEntity user = getUserByUsername(username);
+
+        DisputeEntity dispute = disputeRepository.findDetailedById(disputeId)
+                .orElseThrow(() -> new IllegalArgumentException("Disputa no encontrada"));
+
+        validateDisputeBelongsToUser(dispute, user);
+
+        return toResponse(dispute);
+    }
+
+    @Transactional(readOnly = true)
     public DisputeResponse getTransactionDispute(
             UUID transactionId,
             String username
@@ -107,6 +119,94 @@ public class DisputeService {
         validateDisputeBelongsToUser(dispute, user);
 
         return toResponse(dispute);
+    }
+
+    @Transactional
+    public DisputeResponse resolveMarketplaceDispute(
+            UUID disputeId,
+            ResolveDisputeRequest request,
+            String username
+    ) {
+        UserEntity resolver = getUserByUsername(username);
+
+        DisputeEntity dispute = disputeRepository.findDetailedByIdForUpdate(disputeId)
+                .orElseThrow(() -> new IllegalArgumentException("Disputa no encontrada"));
+
+        validateDisputeBelongsToUser(dispute, resolver);
+        validateDisputeCanBeResolved(dispute);
+
+        TransactionEntity transaction = dispute.getTransaction();
+
+        if (transaction.getType() != TransactionEntity.TxType.MARKETPLACE) {
+            throw new IllegalArgumentException("Solo se pueden resolver disputas marketplace");
+        }
+
+        if (transaction.getStatus() != TransactionEntity.TxStatus.HELD
+                || transaction.getMarketplaceStatus() != TransactionEntity.MpStatus.DISPUTED) {
+            throw new IllegalArgumentException("La transacción no está retenida en disputa");
+        }
+
+        DisputeEntity.DisputeResolution resolution = parseResolution(request.getResolution());
+        BigDecimal transactionAmount = transaction.getAmount();
+        BigDecimal refundAmount = resolveRefundAmount(resolution, request.getRefundAmount(), transactionAmount);
+        BigDecimal sellerReleaseAmount = transactionAmount.subtract(refundAmount);
+
+        WalletPair lockedWallets = lockWalletsInStableOrder(
+                transaction.getWalletFrom().getId(),
+                transaction.getWalletTo().getId()
+        );
+
+        WalletEntity buyerWallet = lockedWallets.sourceWallet();
+        WalletEntity sellerBusinessWallet = lockedWallets.targetWallet();
+
+        if (safe(sellerBusinessWallet.getHoldAmount()).compareTo(transactionAmount) < 0) {
+            throw new IllegalArgumentException("Hold insuficiente para resolver disputa");
+        }
+
+        OffsetDateTime now = OffsetDateTime.now();
+
+        sellerBusinessWallet.setHoldAmount(
+                safe(sellerBusinessWallet.getHoldAmount()).subtract(transactionAmount)
+        );
+
+        if (refundAmount.compareTo(BigDecimal.ZERO) > 0) {
+            buyerWallet.setBalance(safe(buyerWallet.getBalance()).add(refundAmount));
+            buyerWallet.setAvailableBalance(safe(buyerWallet.getAvailableBalance()).add(refundAmount));
+            buyerWallet.setMonthlyRevenue(safe(buyerWallet.getMonthlyRevenue()).add(refundAmount));
+            buyerWallet.setLastTransactionAt(now);
+        }
+
+        if (sellerReleaseAmount.compareTo(BigDecimal.ZERO) > 0) {
+            sellerBusinessWallet.setBalance(safe(sellerBusinessWallet.getBalance()).add(sellerReleaseAmount));
+            sellerBusinessWallet.setAvailableBalance(safe(sellerBusinessWallet.getAvailableBalance()).add(sellerReleaseAmount));
+            sellerBusinessWallet.setMonthlyRevenue(safe(sellerBusinessWallet.getMonthlyRevenue()).add(sellerReleaseAmount));
+            sellerBusinessWallet.setLastTransactionAt(now);
+        }
+
+        transaction.setCompletedAt(now);
+        transaction.setMarketplaceStatus(TransactionEntity.MpStatus.DISPUTED);
+        transaction.setStatus(resolveTransactionStatusAfterDispute(resolution));
+        transaction.setNotes(appendNote(
+                transaction.getNotes(),
+                "Disputa resuelta manualmente: " + resolution.name()
+                        + ". Reembolso: " + refundAmount
+                        + ". Liberado al vendedor: " + sellerReleaseAmount + "."
+        ));
+
+        dispute.setStatus(DisputeEntity.DisputeStatus.RESOLVED);
+        dispute.setResolution(resolution);
+        dispute.setRefundAmount(refundAmount);
+        dispute.setResolutionNotes(normalize(request.getResolutionNotes()));
+        dispute.setResolvedAt(now);
+        dispute.setClosedAt(now);
+
+        walletRepository.saveAll(List.of(buyerWallet, sellerBusinessWallet));
+        TransactionEntity savedTransaction = transactionRepository.save(transaction);
+        DisputeEntity savedDispute = disputeRepository.save(dispute);
+
+        receiptService.generateReceiptForTransaction(savedTransaction.getId());
+
+        return toResponse(savedDispute);
     }
 
     @Transactional
@@ -157,11 +257,13 @@ public class DisputeService {
 
         BigDecimal amount = transaction.getAmount();
 
-        WalletEntity buyerWallet = walletRepository.findByIdForUpdate(transaction.getWalletFrom().getId())
-                .orElseThrow(() -> new IllegalArgumentException("Billetera del comprador no encontrada"));
+        WalletPair lockedWallets = lockWalletsInStableOrder(
+                transaction.getWalletFrom().getId(),
+                transaction.getWalletTo().getId()
+        );
 
-        WalletEntity sellerBusinessWallet = walletRepository.findByIdForUpdate(transaction.getWalletTo().getId())
-                .orElseThrow(() -> new IllegalArgumentException("Billetera del vendedor no encontrada"));
+        WalletEntity buyerWallet = lockedWallets.sourceWallet();
+        WalletEntity sellerBusinessWallet = lockedWallets.targetWallet();
 
         if (safe(sellerBusinessWallet.getHoldAmount()).compareTo(amount) < 0) {
             throw new IllegalArgumentException("Hold insuficiente para reembolsar disputa");
@@ -172,7 +274,6 @@ public class DisputeService {
         buyerWallet.setBalance(safe(buyerWallet.getBalance()).add(amount));
         buyerWallet.setAvailableBalance(safe(buyerWallet.getAvailableBalance()).add(amount));
         buyerWallet.setMonthlyRevenue(safe(buyerWallet.getMonthlyRevenue()).add(amount));
-
         buyerWallet.setLastTransactionAt(now);
         sellerBusinessWallet.setLastTransactionAt(now);
 
@@ -194,7 +295,6 @@ public class DisputeService {
         );
 
         walletRepository.saveAll(List.of(buyerWallet, sellerBusinessWallet));
-
         TransactionEntity savedTransaction = transactionRepository.save(transaction);
         disputeRepository.save(dispute);
 
@@ -219,18 +319,102 @@ public class DisputeService {
         }
     }
 
+    private void validateDisputeCanBeResolved(DisputeEntity dispute) {
+        if (dispute.getStatus() == DisputeEntity.DisputeStatus.RESOLVED
+                || dispute.getStatus() == DisputeEntity.DisputeStatus.CLOSED) {
+            throw new IllegalArgumentException("La disputa ya fue resuelta o cerrada");
+        }
+    }
+
     private void validateDisputeBelongsToUser(
             DisputeEntity dispute,
             UserEntity user
     ) {
         UUID userId = user.getId();
-
         UUID createdByUserId = dispute.getCreatedByUser().getId();
         UUID respondentUserId = dispute.getRespondentUser().getId();
 
         if (!createdByUserId.equals(userId) && !respondentUserId.equals(userId)) {
             throw new IllegalArgumentException("No tienes permiso para ver esta disputa");
         }
+    }
+
+    private DisputeEntity.DisputeResolution parseResolution(String value) {
+        String normalized = normalizeRequired(value, "La resolución es obligatoria")
+                .toUpperCase();
+
+        try {
+            return DisputeEntity.DisputeResolution.valueOf(normalized);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException(
+                    "Resolución inválida. Valores permitidos: REFUND, PARTIAL_REFUND, DISMISSED"
+            );
+        }
+    }
+
+    private BigDecimal resolveRefundAmount(
+            DisputeEntity.DisputeResolution resolution,
+            BigDecimal requestedRefundAmount,
+            BigDecimal transactionAmount
+    ) {
+        return switch (resolution) {
+            case REFUND -> transactionAmount;
+
+            case PARTIAL_REFUND -> {
+                if (requestedRefundAmount == null) {
+                    throw new IllegalArgumentException("El reembolso parcial requiere refundAmount");
+                }
+
+                if (requestedRefundAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new IllegalArgumentException("El refundAmount debe ser mayor a cero");
+                }
+
+                if (requestedRefundAmount.compareTo(transactionAmount) >= 0) {
+                    throw new IllegalArgumentException("Para reembolso total usa REFUND");
+                }
+
+                yield requestedRefundAmount;
+            }
+
+            case DISMISSED -> BigDecimal.ZERO;
+        };
+    }
+
+    private TransactionEntity.TxStatus resolveTransactionStatusAfterDispute(
+            DisputeEntity.DisputeResolution resolution
+    ) {
+        return switch (resolution) {
+            case REFUND -> TransactionEntity.TxStatus.CANCELLED;
+            case PARTIAL_REFUND, DISMISSED -> TransactionEntity.TxStatus.RELEASED;
+        };
+    }
+
+    private WalletPair lockWalletsInStableOrder(UUID sourceWalletId, UUID targetWalletId) {
+        WalletEntity firstLocked;
+        WalletEntity secondLocked;
+
+        if (sourceWalletId.compareTo(targetWalletId) <= 0) {
+            firstLocked = lockWallet(sourceWalletId);
+            secondLocked = lockWallet(targetWalletId);
+        } else {
+            firstLocked = lockWallet(targetWalletId);
+            secondLocked = lockWallet(sourceWalletId);
+        }
+
+        WalletEntity sourceWallet = firstLocked.getId().equals(sourceWalletId)
+                ? firstLocked
+                : secondLocked;
+
+        WalletEntity targetWallet = firstLocked.getId().equals(targetWalletId)
+                ? firstLocked
+                : secondLocked;
+
+        return new WalletPair(sourceWallet, targetWallet);
+    }
+
+    private WalletEntity lockWallet(UUID walletId) {
+        return walletRepository.findByIdForUpdate(walletId)
+                .orElseThrow(() -> new IllegalArgumentException("Billetera no encontrada"));
     }
 
     private UserEntity getUserByUsername(String username) {
@@ -288,7 +472,6 @@ public class DisputeService {
         }
 
         String trimmed = value.trim();
-
         return trimmed.isEmpty() ? null : trimmed;
     }
 
@@ -310,5 +493,11 @@ public class DisputeService {
         }
 
         return normalizedCurrentNotes + " | " + newNote;
+    }
+
+    private record WalletPair(
+            WalletEntity sourceWallet,
+            WalletEntity targetWallet
+    ) {
     }
 }
